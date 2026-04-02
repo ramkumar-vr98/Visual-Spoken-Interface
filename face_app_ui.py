@@ -91,7 +91,7 @@ class Ui_MainWindow(object):
 "\n"
 "QPushButton#start_button:hover {\n"
 "    background-color: #12b766;\n"
-"}\n"
+"}\n" 
 "\n"
 "/* STOP BUTTON (RED) */\n"
 "QPushButton#stop_button {\n"
