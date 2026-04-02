@@ -1,0 +1,139 @@
+import cv2
+from pathlib import Path
+
+TRAIN_DIR = Path(r"C:\Users\ram41\OneDrive\Desktop\PSB\Visual & Spoken Interfaces\CW2_vsi\Facial_Features\Faces\train")
+VAL_DIR = Path(r"C:\Users\ram41\OneDrive\Desktop\PSB\Visual & Spoken Interfaces\CW2_vsi\Facial_Features\Faces\val")
+
+CROPPED_TRAIN_DIR = Path(r"C:\Users\ram41\OneDrive\Desktop\PSB\Visual & Spoken Interfaces\CW2_vsi\Facial_Features\Faces\cropped_train")
+CROPPED_VAL_DIR = Path(r"C:\Users\ram41\OneDrive\Desktop\PSB\Visual & Spoken Interfaces\CW2_vsi\Facial_Features\Faces\cropped_val")
+
+SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp"}
+CASCADE_PATH = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+
+
+def numeric_sort_key(path: Path):
+    try:
+        return int(path.stem)
+    except ValueError:
+        return path.stem.lower()
+
+
+def detect_and_crop_face(image_path: Path, face_cascade: cv2.CascadeClassifier):
+    image = cv2.imread(str(image_path))
+    if image is None:
+        return None
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    faces = face_cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.05,
+        minNeighbors=4,
+        minSize=(80, 80)
+    )
+
+    if len(faces) == 0:
+        return None
+
+    x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+
+    pad_x = int(0.08 * w)
+    pad_y = int(0.08 * h)
+
+    x1 = max(0, x - pad_x)
+    y1 = max(0, y - pad_y)
+    x2 = min(image.shape[1], x + w + pad_x)
+    y2 = min(image.shape[0], y + h + pad_y)
+
+    cropped_face = image[y1:y2, x1:x2]
+    return cropped_face
+
+
+def clear_output_folder(folder: Path):
+    if folder.exists():
+        for item in folder.rglob("*"):
+            if item.is_file():
+                item.unlink()
+
+
+def process_dataset(input_root: Path, output_root: Path, face_cascade: cv2.CascadeClassifier):
+    if not input_root.exists():
+        print(f"[ERROR] Input folder not found: {input_root}")
+        return
+
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    total_images = 0
+    saved_images = 0
+    skipped_images = 0
+
+    class_folders = sorted([p for p in input_root.iterdir() if p.is_dir()], key=lambda p: p.name.lower())
+
+    for class_folder in class_folders:
+        class_name = class_folder.name
+        output_class_folder = output_root / class_name
+        output_class_folder.mkdir(parents=True, exist_ok=True)
+
+        image_files = [p for p in class_folder.iterdir() if p.suffix.lower() in SUPPORTED_EXTENSIONS]
+        image_files.sort(key=numeric_sort_key)
+
+        class_saved = 0
+        class_skipped = 0
+        save_index = 1
+
+        print(f"\nProcessing class: {class_name}")
+
+        for image_path in image_files:
+            total_images += 1
+            cropped_face = detect_and_crop_face(image_path, face_cascade)
+
+            if cropped_face is None:
+                skipped_images += 1
+                class_skipped += 1
+                print(f"  [SKIP] No face detected: {image_path.name}")
+                continue
+
+            save_path = output_class_folder / f"{save_index}.jpg"
+            success = cv2.imwrite(str(save_path), cropped_face)
+
+            if success:
+                saved_images += 1
+                class_saved += 1
+                print(f"  [SAVE] {image_path.name} -> {save_path.name}")
+                save_index += 1
+            else:
+                skipped_images += 1
+                class_skipped += 1
+                print(f"  [SKIP] Failed to save: {image_path.name}")
+
+        print(f"Finished {class_name}: saved={class_saved}, skipped={class_skipped}")
+
+    print("\n=========================")
+    print(f"Input folder : {input_root}")
+    print(f"Output folder: {output_root}")
+    print(f"Total images : {total_images}")
+    print(f"Saved images : {saved_images}")
+    print(f"Skipped      : {skipped_images}")
+    print("=========================")
+
+
+def main():
+    face_cascade = cv2.CascadeClassifier(CASCADE_PATH)
+    if face_cascade.empty():
+        print("[ERROR] Failed to load Haar cascade.")
+        return
+
+    clear_output_folder(CROPPED_TRAIN_DIR)
+    clear_output_folder(CROPPED_VAL_DIR)
+
+    print("Cropping TRAIN dataset...")
+    process_dataset(TRAIN_DIR, CROPPED_TRAIN_DIR, face_cascade)
+
+    print("\nCropping VAL dataset...")
+    process_dataset(VAL_DIR, CROPPED_VAL_DIR, face_cascade)
+
+    print("\nDone.")
+
+
+if __name__ == "__main__":
+    main()
