@@ -1,0 +1,15 @@
+# Core GUI
+PyQt5==5.15.9
+PyQt5-sip==12.12.2
+
+# Machine Learning / Vision
+mediapipe==0.10.9
+tensorflow==2.15.0
+
+# Dependency alignment
+protobuf==3.20.3
+numpy==1.24.3
+absl-py==1.4.0
+
+# Optional (for plotting/debugging)
+matplotlib==3.7.1
