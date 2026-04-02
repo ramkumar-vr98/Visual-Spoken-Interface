@@ -1,0 +1,111 @@
+from pathlib import Path
+import json
+import cv2
+import torch
+from torch import nn
+from torchvision import transforms, models
+from PIL import Image
+
+# =========================
+# CONFIG
+# =========================
+MODEL_PATH = Path(r"C:\Users\ram41\OneDrive\Desktop\PSB\Visual & Spoken Interfaces\CW2_vsi\VSI_Codes\identity_model.pth")
+CLASS_NAMES_PATH = Path(r"C:\Users\ram41\OneDrive\Desktop\PSB\Visual & Spoken Interfaces\CW2_vsi\VSI_Codes\class_names.json")
+
+# Change this image path whenever you want to test another image
+TEST_IMAGE_PATH = Path(r"C:\Users\ram41\OneDrive\Desktop\PSB\Visual & Spoken Interfaces\CW2_vsi\Facial_Features\Faces\val\Mindy_Kaling\2.jpg")
+
+IMG_SIZE = 224
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+CASCADE_PATH = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+
+
+def load_class_names():
+    with open(CLASS_NAMES_PATH, "r") as f:
+        return json.load(f)
+
+
+def build_model(num_classes: int):
+    model = models.resnet18(weights=None)
+    model.fc = nn.Linear(model.fc.in_features, num_classes)
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+    model = model.to(DEVICE)
+    model.eval()
+    return model
+
+
+def crop_face(image_path: Path):
+    face_cascade = cv2.CascadeClassifier(CASCADE_PATH)
+    if face_cascade.empty():
+        raise RuntimeError("Failed to load Haar cascade.")
+
+    image = cv2.imread(str(image_path))
+    if image is None:
+        raise FileNotFoundError(f"Could not read image: {image_path}")
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    faces = face_cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.05,
+        minNeighbors=4,
+        minSize=(80, 80)
+    )
+
+    if len(faces) == 0:
+        return None
+
+    x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+
+    pad_x = int(0.08 * w)
+    pad_y = int(0.08 * h)
+
+    x1 = max(0, x - pad_x)
+    y1 = max(0, y - pad_y)
+    x2 = min(image.shape[1], x + w + pad_x)
+    y2 = min(image.shape[0], y + h + pad_y)
+
+    cropped = image[y1:y2, x1:x2]
+    cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+    return Image.fromarray(cropped_rgb)
+
+
+def predict_image(model, class_names, face_image: Image.Image):
+    transform = transforms.Compose([
+        transforms.Resize((IMG_SIZE, IMG_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406],
+                             [0.229, 0.224, 0.225]),
+    ])
+
+    tensor = transform(face_image).unsqueeze(0).to(DEVICE)
+
+    with torch.no_grad():
+        outputs = model(tensor)
+        probs = torch.softmax(outputs, dim=1)
+        confidence, pred_idx = torch.max(probs, dim=1)
+
+    predicted_name = class_names[pred_idx.item()]
+    confidence_percent = confidence.item() * 100
+    return predicted_name, confidence_percent
+
+
+def main():
+    class_names = load_class_names()
+    model = build_model(len(class_names))
+
+    face_image = crop_face(TEST_IMAGE_PATH)
+    if face_image is None:
+        print("No face detected in test image.")
+        return
+
+    predicted_name, confidence = predict_image(model, class_names, face_image)
+
+    print(f"Test image: {TEST_IMAGE_PATH}")
+    print(f"Predicted identity: {predicted_name}")
+    print(f"Confidence: {confidence:.2f}%")
+
+
+if __name__ == "__main__":
+    main()
